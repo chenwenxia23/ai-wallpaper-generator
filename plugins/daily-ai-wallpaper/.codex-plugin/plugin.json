@@ -15,6 +15,7 @@
     "developerName": "Daily AI Wallpaper contributors",
     "category": "Productivity",
     "capabilities": ["Interactive", "Image generation", "Local desktop"],
+    "websiteURL": "https://daily-ai-wallpaper-yesterday.bright-yak-1650.chatgpt.site",
     "defaultPrompt": [
       "根据我昨天授权的任务，生成今天的完整桌面壁纸。",
       "附上这张人物参考图，生成更像我的每日壁纸。",
