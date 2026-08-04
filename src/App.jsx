@@ -577,7 +577,7 @@ export function App() {
           <p>把昨天的 AI 对话，变成今天一眼能懂的桌面</p>
         </div>
         <div className="header-actions">
-          <a className="quiet-button download-link" href="/downloads/daily-ai-wallpaper-plugin.zip" download>下载 Plugin</a>
+          <a className="quiet-button download-link" href="/downloads/daily-ai-wallpaper-plugin-v1.0.0.zip" download>下载 Plugin</a>
           <button className="quiet-button" type="button" onClick={function () { setGuideOpen(true); }}>使用指南</button>
           <div className="today-chip"><span>{dateMeta.short}</span><strong>今日桌面</strong></div>
         </div>
