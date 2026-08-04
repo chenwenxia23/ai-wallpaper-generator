@@ -1,0 +1,26 @@
+{
+  "name": "daily-ai-wallpaper",
+  "version": "1.0.0",
+  "description": "Turn authorized previous-day Codex tasks into a verified, personalized desktop wallpaper.",
+  "author": {
+    "name": "Daily AI Wallpaper contributors"
+  },
+  "license": "MIT",
+  "keywords": ["wallpaper", "daily-reflection", "ai-capability", "image-generation", "macos"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Daily AI Wallpaper · 昨日之我",
+    "shortDescription": "把昨日授权的 AI 任务变成今天的个性化桌面壁纸",
+    "longDescription": "读取用户授权的昨日任务，先完成证据化 AI 能力评估，再提炼当日主线、心理线索和下一步，生成并检查一张包含黄历、星座和 AI 能力组件的完整桌面壁纸。支持可选人物参考、九种风格、两种布局、每日自动化和 Mac 本地桌面更换。",
+    "developerName": "Daily AI Wallpaper contributors",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Image generation", "Local desktop"],
+    "defaultPrompt": [
+      "根据我昨天授权的任务，生成今天的完整桌面壁纸。",
+      "附上这张人物参考图，生成更像我的每日壁纸。",
+      "为我设置每天 09:00 自动生成并更换壁纸。"
+    ],
+    "brandColor": "#C85F45",
+    "screenshots": ["./assets/website.png"]
+  }
+}

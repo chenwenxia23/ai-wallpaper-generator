@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI 使用能力评估"
+  short_description: "基于真实对话证据评估 AI 工作能力并给出改进方向"
+  default_prompt: "使用 $assess-ai-work-capability 阅读我最近的对话，给出证据化评分、评级和最优先的改进实验。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "昨日对话壁纸"
+  short_description: "把昨日对话变成可读、可选风格、可检查并导出的个性化桌面壁纸"
+  default_prompt: "Use $generate-daily-ai-wallpaper to turn my yesterday conversations into a polished desktop wallpaper."
