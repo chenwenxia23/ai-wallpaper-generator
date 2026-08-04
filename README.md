@@ -20,8 +20,8 @@ GitHub 仓库：https://github.com/chenwenxia23/ai-wallpaper-generator
 
 ## 最快使用方式
 
-1. 从仓库下载或解压最新 Release。
-2. 在项目目录运行 `./scripts/install-plugin.sh`。
+1. 在最新 Release 中下载 `daily-ai-wallpaper-plugin.zip` 并解压。
+2. 进入解压出的 `daily-ai-wallpaper-kit`，运行 `./scripts/install-plugin.sh`。
 3. 新建一个 Codex 任务并说：`使用 $generate-daily-ai-wallpaper，根据我昨天授权的对话生成今天的桌面壁纸。`
 4. 如果希望画面更像自己，在同一任务中附上照片。
 5. Mac 用户在本地启动网站后，可以导入 Codex 生成的完整 PNG，再点击“立即更换桌面壁纸”。
@@ -29,6 +29,8 @@ GitHub 仓库：https://github.com/chenwenxia23/ai-wallpaper-generator
 第一次更换 Mac 桌面时，系统可能请求允许控制“系统事件”。拒绝权限不会影响壁纸生成和导出。
 
 ## 运行网站
+
+如果还要运行或修改网站，请下载完整仓库源码，而不是只下载 Plugin 安装包。
 
 ```bash
 npm install
