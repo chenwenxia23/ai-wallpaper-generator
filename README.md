@@ -2,6 +2,8 @@
 
 把你昨天授权给 Codex 的任务复盘成一张今天一眼能懂的桌面壁纸：你在做什么、可能处于什么状态、今天最值得做的一步，以及黄历、星座和有证据的 AI 使用能力。
 
+GitHub 仓库：https://github.com/chenwenxia23/ai-wallpaper-generator
+
 网站预览（当前仅仓库所有者可访问）：https://daily-ai-wallpaper-yesterday.bright-yak-1650.chatgpt.site
 
 ![Daily AI Wallpaper website](plugins/daily-ai-wallpaper/assets/website.png)
