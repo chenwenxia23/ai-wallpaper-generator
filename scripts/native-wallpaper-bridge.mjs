@@ -4,6 +4,7 @@ import { existsSync, promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { createWallpaperGenerationManager } from "./wallpaper-generation-runner.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,19 +44,37 @@ function sha256(buffer) {
 }
 
 async function fetchRuntimePage(cacheKey) {
-  const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/index.html?wallpaper=" + cacheKey, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(2500),
-  });
-  return { response, html: await response.text() };
+  let lastError;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/index.html?wallpaper=" + cacheKey + "&attempt=" + attempt, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2500),
+      });
+      return { response, html: await response.text() };
+    } catch (error) {
+      lastError = error;
+      await wait(450);
+    }
+  }
+  throw lastError;
 }
 
 async function fetchRuntimeImage(cacheKey) {
-  const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/../manual-wallpaper.png?wallpaper=" + cacheKey, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(4000),
-  });
-  return { response, buffer: Buffer.from(await response.arrayBuffer()) };
+  let lastError;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/../manual-wallpaper.png?wallpaper=" + cacheKey + "&attempt=" + attempt, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4000),
+      });
+      return { response, buffer: Buffer.from(await response.arrayBuffer()) };
+    } catch (error) {
+      lastError = error;
+      await wait(450);
+    }
+  }
+  throw lastError;
 }
 
 async function ensureRuntimeServer() {
@@ -201,6 +220,30 @@ function readBinaryBody(request) {
   });
 }
 
+function readJsonBody(request) {
+  return new Promise(function (resolve, reject) {
+    const chunks = [];
+    let length = 0;
+    request.on("data", function (chunk) {
+      length += chunk.length;
+      if (length > 20 * 1024 * 1024) {
+        reject(new Error("request_too_large"));
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", function () {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+      } catch (error) {
+        reject(new Error("invalid_json"));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
 function isLoopbackRequest(request) {
   const address = request.socket && request.socket.remoteAddress;
   return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
@@ -249,6 +292,14 @@ export async function setMacWallpaper(projectRoot, styleId) {
 }
 
 export function nativeWallpaperBridge(projectRoot) {
+  const workspaceRoot = path.resolve(projectRoot, "..");
+  const settingsPath = path.join(workspaceRoot, ".ai-state", "daily-wallpaper-settings.json");
+  const generationManager = createWallpaperGenerationManager({
+    workspaceRoot,
+    projectRoot,
+    applyWallpaper: setMacWallpaperFromPath,
+  });
+
   return {
     name: "native-wallpaper-bridge",
     configureServer(server) {
@@ -259,7 +310,104 @@ export function nativeWallpaperBridge(projectRoot) {
             sendJson(response, 403, { ok: false, code: "local_only" });
             return;
           }
-          sendJson(response, 200, { ok: true, platform: process.platform, supportsCustomWallpaper: true });
+          sendJson(response, 200, {
+            ok: true,
+            platform: process.platform,
+            supportsCustomWallpaper: true,
+            supportsFreshGeneration: true,
+            schedule: { enabled: true, time: "09:00", timezone: "Asia/Shanghai", owner: "Codex Automation" },
+          });
+          return;
+        }
+        if (requestUrl.pathname === "/api/wallpaper-settings") {
+          if (request.method !== "POST") {
+            sendJson(response, 405, { ok: false, code: "method_not_allowed" });
+            return;
+          }
+          if (!isLoopbackRequest(request)) {
+            sendJson(response, 403, { ok: false, code: "local_only" });
+            return;
+          }
+          try {
+            const payload = await readJsonBody(request);
+            const allowedStyles = new Set(["random", ...Object.keys(STYLE_FILES)]);
+            const allowedLayouts = new Set(["random", "mental", "transition"]);
+            const settings = {
+              version: 1,
+              enabled: true,
+              time: "09:00",
+              timezone: "Asia/Shanghai",
+              zodiac: typeof payload.zodiac === "string" ? payload.zodiac : "天秤座",
+              stylePreference: allowedStyles.has(payload.stylePreference) ? payload.stylePreference : "random",
+              layoutPreference: allowedLayouts.has(payload.layoutPreference) ? payload.layoutPreference : "random",
+              updatedAt: new Date().toISOString(),
+            };
+            await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+            await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+            sendJson(response, 200, { ok: true, settings });
+          } catch (error) {
+            sendJson(response, 400, { ok: false, code: error.message || "invalid_settings" });
+          }
+          return;
+        }
+        if (requestUrl.pathname === "/api/generate-wallpaper") {
+          if (request.method !== "POST") {
+            sendJson(response, 405, { ok: false, code: "method_not_allowed", message: "这里只接受新壁纸生成请求。" });
+            return;
+          }
+          if (!isLoopbackRequest(request)) {
+            sendJson(response, 403, { ok: false, code: "local_only", message: "新壁纸生成只能从这台 Mac 本机发起。" });
+            return;
+          }
+          try {
+            const payload = await readJsonBody(request);
+            const result = generationManager.start(payload);
+            if (!result.accepted) {
+              sendJson(response, 409, { ok: false, code: result.code, message: "已有一张新壁纸正在生成，请等待它完成。", ...result.run });
+              return;
+            }
+            sendJson(response, 202, { ok: true, ...result.run });
+          } catch (error) {
+            const code = error.message || "generation_request_failed";
+            sendJson(response, code === "invalid_json" || code === "request_too_large" ? 400 : 500, {
+              ok: false,
+              code,
+              message: code === "request_too_large" ? "人物参考图超过 12 MB，请换一张较小的图片。" : "没有收到有效的新壁纸生成请求。",
+            });
+          }
+          return;
+        }
+        if (requestUrl.pathname === "/api/generation-status") {
+          if (!isLoopbackRequest(request)) {
+            sendJson(response, 403, { ok: false, code: "local_only" });
+            return;
+          }
+          const run = generationManager.get(requestUrl.searchParams.get("runId") || "");
+          if (!run) {
+            sendJson(response, 404, { ok: false, code: "run_not_found", message: "没有找到这次生成任务。" });
+            return;
+          }
+          sendJson(response, 200, { ok: true, ...run });
+          return;
+        }
+        if (requestUrl.pathname === "/api/generation-image") {
+          if (!isLoopbackRequest(request)) {
+            sendJson(response, 403, { ok: false, code: "local_only" });
+            return;
+          }
+          const stream = generationManager.createImageStream(requestUrl.searchParams.get("runId") || "");
+          if (!stream) {
+            sendJson(response, 404, { ok: false, code: "image_not_ready", message: "新壁纸还没有生成完成。" });
+            return;
+          }
+          response.statusCode = 200;
+          response.setHeader("Content-Type", "image/png");
+          response.setHeader("Cache-Control", "no-store");
+          stream.on("error", function () {
+            if (!response.headersSent) sendJson(response, 500, { ok: false, code: "image_read_failed" });
+            else response.destroy();
+          });
+          stream.pipe(response);
           return;
         }
         if (requestUrl.pathname !== "/api/set-wallpaper") {

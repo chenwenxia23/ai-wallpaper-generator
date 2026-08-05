@@ -216,27 +216,6 @@ async function canvasToPngBlob(canvas) {
   });
 }
 
-async function setDesktopWallpaper(selectedStyle) {
-  const canvas = await renderWallpaperCanvas(selectedStyle);
-  const blob = await canvasToPngBlob(canvas);
-  const response = await fetch("/api/set-wallpaper?styleId=" + encodeURIComponent(selectedStyle.id), {
-    method: "POST",
-    headers: { "Content-Type": "image/png", "X-Wallpaper-Name": encodeURIComponent(selectedStyle.label) },
-    body: blob,
-  });
-  const raw = await response.text();
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch (error) {
-    throw new Error("本机桌面助手没有连接，请使用本地生成器打开这个页面。");
-  }
-  if (!response.ok || !payload.ok || !payload.verified) {
-    throw new Error(payload.message || "Mac 没有完成桌面更换。");
-  }
-  return payload;
-}
-
 function WallpaperPreview({ selectedStyle }) {
   return (
     <div className="wallpaper" data-testid="wallpaper-preview">
@@ -297,26 +276,27 @@ function formatUpdateStamp(value) {
   }).format(date);
 }
 
-function pickDifferent(items, current) {
-  const alternatives = items.filter(function (item) { return item !== current; });
-  const pool = alternatives.length ? alternatives : items;
-  return pool[Math.floor(Math.random() * pool.length)];
+function fileToDataUrl(file) {
+  if (!file) return Promise.resolve("");
+  return new Promise(function (resolve, reject) {
+    const reader = new FileReader();
+    reader.onload = function () { resolve(String(reader.result || "")); };
+    reader.onerror = function () { reject(new Error("人物参考图读取失败")); };
+    reader.readAsDataURL(file);
+  });
 }
 
-function isPastSchedule(now, updateTime) {
-  const parts = updateTime.split(":").map(Number);
-  const scheduled = new Date(now);
-  scheduled.setHours(parts[0] || 0, parts[1] || 0, 0, 0);
-  return now >= scheduled;
-}
-
-function getNextRunLabel(autoEnabled, updateTime, lastAutoDate) {
-  if (!autoEnabled) return "自动更新已暂停";
-  const now = new Date();
-  const today = getLocalDateId(now);
-  if (lastAutoDate !== today && !isPastSchedule(now, updateTime)) return "今天 " + updateTime;
-  if (lastAutoDate !== today) return "正在补上今天的更新";
-  return "明天 " + updateTime;
+function normalizeGeneratedReport(payload, fallbackZodiac) {
+  return {
+    ...payload,
+    date: payload.sourceDate || getLocalDateId(),
+    sourceCount: Number(payload.sourceCount) || 0,
+    confidence: Number(payload.confidence) || 0,
+    almanac: payload.almanac || { lunar: "黄历待同步", action: "待同步", avoid: "待同步" },
+    zodiac: payload.zodiac || fallbackZodiac,
+    zodiacReading: payload.zodiacReading || { signal: "参考", advice: "待同步", note: "星座信息待同步" },
+    ability: payload.ability || { ...PENDING_ABILITY },
+  };
 }
 
 export function App() {
@@ -337,9 +317,6 @@ export function App() {
     const stored = readSetting("stylePreference", "random");
     return stored === "random" || WALLPAPER_STYLES.some(function (style) { return style.id === stored; }) ? stored : "random";
   });
-  const [autoEnabled, setAutoEnabled] = useState(function () { return readSetting("autoEnabled", true); });
-  const [updateTime, setUpdateTime] = useState(function () { return readSetting("updateTime", "09:00"); });
-  const [lastAutoDate, setLastAutoDate] = useState(function () { return readSetting("lastAutoDate", ""); });
   const [lastUpdated, setLastUpdated] = useState(function () { return readSetting("lastUpdated", ""); });
   const [lastReason, setLastReason] = useState(function () { return readSetting("lastReason", "公开示例已就绪"); });
   const [report, setReport] = useState(function () { return analyzeConversation(DEMO_REVIEW, getLocalDateId(), zodiac); });
@@ -352,12 +329,13 @@ export function App() {
   const [exporting, setExporting] = useState(false);
   const [exportMeta, setExportMeta] = useState(null);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [activeRunId, setActiveRunId] = useState("");
   const selectedStyle = useMemo(function () {
     if (customWallpaper) return customWallpaper;
     return WALLPAPER_STYLES.find(function (item) { return item.id === styleId; }) || WALLPAPER_STYLES[0];
   }, [styleId, customWallpaper]);
+  const hasGeneratedWallpaper = Boolean(customWallpaper && !customWallpaper.objectUrl);
   const dateMeta = formatDate(report.date);
-  const nextRunLabel = getNextRunLabel(autoEnabled, updateTime, lastAutoDate);
 
   useEffect(function () {
     saveSetting("zodiac", zodiac);
@@ -365,12 +343,9 @@ export function App() {
     saveSetting("styleId", styleId);
     saveSetting("layoutPreference", layoutPreference);
     saveSetting("stylePreference", stylePreference);
-    saveSetting("autoEnabled", autoEnabled);
-    saveSetting("updateTime", updateTime);
-    saveSetting("lastAutoDate", lastAutoDate);
     saveSetting("lastUpdated", lastUpdated);
     saveSetting("lastReason", lastReason);
-  }, [zodiac, layoutKey, styleId, layoutPreference, stylePreference, autoEnabled, updateTime, lastAutoDate, lastUpdated, lastReason]);
+  }, [zodiac, layoutKey, styleId, layoutPreference, stylePreference, lastUpdated, lastReason]);
 
   useEffect(function () {
     let active = true;
@@ -379,9 +354,9 @@ export function App() {
       return response.json();
     }).then(function (payload) {
       if (!active) return;
-      setNativeAvailable(Boolean(payload.ok && payload.platform === "darwin"));
-      setDesktopStatus(payload.ok && payload.platform === "darwin"
-        ? { state: "idle", message: "本地桌面助手已连接" }
+      setNativeAvailable(Boolean(payload.ok && payload.platform === "darwin" && payload.supportsFreshGeneration));
+      setDesktopStatus(payload.ok && payload.platform === "darwin" && payload.supportsFreshGeneration
+        ? { state: "idle", message: "本机生成与桌面助手已连接" }
         : { state: "error", message: "当前只能预览和导出" });
     }).catch(function () {
       if (!active) return;
@@ -390,6 +365,18 @@ export function App() {
     });
     return function () { active = false; };
   }, []);
+
+  useEffect(function () {
+    if (!nativeAvailable) return undefined;
+    const timer = window.setTimeout(function () {
+      fetch("/api/wallpaper-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zodiac, layoutPreference, stylePreference }),
+      }).catch(function (error) { console.warn("自动壁纸偏好保存失败", error); });
+    }, 250);
+    return function () { window.clearTimeout(timer); };
+  }, [nativeAvailable, zodiac, layoutPreference, stylePreference]);
 
   useEffect(function () {
     return function () {
@@ -403,73 +390,75 @@ export function App() {
     };
   }, [customWallpaper]);
 
-  const updateWallpaper = useCallback(async function (reason) {
-    const layoutIds = Object.keys(LAYOUTS);
-    const styleIds = WALLPAPER_STYLES.map(function (style) { return style.id; });
-    const nextLayout = layoutPreference === "random" ? pickDifferent(layoutIds, layoutKey) : layoutPreference;
-    const nextStyle = stylePreference === "random" ? pickDifferent(styleIds, styleId) : stylePreference;
-    const nextStyleConfig = WALLPAPER_STYLES.find(function (style) { return style.id === nextStyle; }) || WALLPAPER_STYLES[0];
-    const now = new Date();
-    const today = getLocalDateId(now);
-
-    setUpdating(true);
-    setDesktopStatus({ state: "working", message: "正在把“" + nextStyleConfig.label + "”设为 Mac 桌面…" });
-    setCustomWallpaper(null);
-    setLayoutKey(nextLayout);
-    setStyleId(nextStyle);
-    setReport(analyzeConversation(DEMO_REVIEW, today, zodiac));
-    setLastUpdated(now.toISOString());
-    if (reason === "auto" || isPastSchedule(now, updateTime)) setLastAutoDate(today);
-
-    try {
-      const result = await setDesktopWallpaper(nextStyleConfig);
-      setLastReason(reason === "auto" ? "按计划更换 Mac 桌面" : "手动更换 Mac 桌面");
-      setDesktopStatus({ state: "success", message: "Mac 桌面已更换为“" + nextStyleConfig.label + "”" });
-      setToast(reason === "auto" ? "已按计划更换 Mac 桌面" : "Mac 桌面壁纸已更换");
-      return { ...result, layout: nextLayout };
-    } catch (error) {
-      console.error(error);
-      setLastReason("仅更新网页预览");
-      setDesktopStatus({ state: "error", message: error.message });
-      setToast("预览已更新，但 Mac 桌面没有更换");
-      return { verified: false, error: error.message, layout: nextLayout, styleId: nextStyle };
-    } finally {
-      setUpdating(false);
+  const generateFreshWallpaper = useCallback(async function () {
+    if (!nativeAvailable) {
+      setGuideOpen(true);
+      setDesktopStatus({ state: "error", message: "公开网页不能读取对话；请安装 Plugin 并打开本地生成器" });
+      setToast("需要本机 Codex 才能生成并更换新壁纸");
+      return { verified: false, error: "native_generator_unavailable" };
     }
-  }, [layoutPreference, stylePreference, layoutKey, styleId, zodiac, updateTime]);
 
-  const applyCurrentWallpaper = useCallback(async function () {
     setUpdating(true);
-    setDesktopStatus({ state: "working", message: "正在使用当前预览的完整图片…" });
+    setDesktopStatus({ state: "working", message: "正在启动：昨日对话 → 复盘 → 新图 → 检查 → 更换桌面" });
+    setToast("已开始生成一张全新的壁纸");
     try {
-      const result = await setDesktopWallpaper(selectedStyle);
-      setLastUpdated(new Date().toISOString());
-      setLastReason("使用当前完整图片更换 Mac 桌面");
-      setDesktopStatus({ state: "success", message: "Mac 桌面已更换为“" + selectedStyle.label + "”" });
-      setToast("当前预览已成为 Mac 桌面");
-      return result;
+      const portraitDataUrl = await fileToDataUrl(portrait?.file);
+      const response = await fetch("/api/generate-wallpaper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trigger: "manual",
+          zodiac,
+          layoutPreference,
+          stylePreference,
+          currentLayoutId: layoutKey,
+          currentStyleId: styleId,
+          portraitDataUrl,
+        }),
+      });
+      const started = await response.json();
+      if ((!response.ok && response.status !== 409) || !started.runId) throw new Error(started.message || "新壁纸任务没有启动");
+      const runId = started.runId;
+      setActiveRunId(runId);
+
+      let result = started;
+      while (result.status !== "completed" && result.status !== "failed") {
+        await new Promise(function (resolve) { window.setTimeout(resolve, 1800); });
+        const statusResponse = await fetch("/api/generation-status?runId=" + encodeURIComponent(runId), { cache: "no-store" });
+        result = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(result.message || "没有读到生成进度");
+        setDesktopStatus({ state: "working", message: result.message });
+      }
+      if (result.status !== "completed" || !result.applied?.verified) throw new Error(result.message || "新壁纸没有完成");
+
+      const generatedReport = normalizeGeneratedReport(result.report || {}, zodiac);
+      const generatedStyle = {
+        id: generatedReport.style.id,
+        label: generatedReport.style.label,
+        image: result.imageUrl,
+        thumb: result.imageUrl,
+        note: "刚刚根据昨日对话生成",
+      };
+      setReport(generatedReport);
+      setCustomWallpaper(generatedStyle);
+      if (LAYOUTS[generatedReport.layout.id]) setLayoutKey(generatedReport.layout.id);
+      if (WALLPAPER_STYLES.some(function (style) { return style.id === generatedReport.style.id; })) setStyleId(generatedReport.style.id);
+      setLastUpdated(result.completedAt || new Date().toISOString());
+      setLastReason("新壁纸已生成并更换");
+      setDesktopStatus({ state: "success", message: "新壁纸已生成、检查并成为 Mac 桌面" });
+      setToast("不是旧预览：一张新壁纸已成为桌面");
+      return { verified: true, ...result };
     } catch (error) {
       console.error(error);
-      setLastReason("仅保留当前网页预览");
+      setLastReason("新壁纸生成未完成");
       setDesktopStatus({ state: "error", message: error.message });
-      setToast("当前图片仍可导出，但 Mac 桌面没有更换");
+      setToast("旧桌面保持不变，请查看失败提示");
       return { verified: false, error: error.message };
     } finally {
+      setActiveRunId("");
       setUpdating(false);
     }
-  }, [selectedStyle]);
-
-  useEffect(function () {
-    function checkSchedule() {
-      const now = new Date();
-      if (autoEnabled && nativeAvailable && lastAutoDate !== getLocalDateId(now) && isPastSchedule(now, updateTime)) {
-        updateWallpaper("auto");
-      }
-    }
-    checkSchedule();
-    const timer = window.setInterval(checkSchedule, 30000);
-    return function () { window.clearInterval(timer); };
-  }, [autoEnabled, updateTime, lastAutoDate, nativeAvailable, updateWallpaper]);
+  }, [nativeAvailable, portrait, zodiac, layoutPreference, stylePreference, layoutKey, styleId]);
 
   useEffect(function () {
     window.__wallpaperGenerator = {
@@ -482,12 +471,12 @@ export function App() {
           layoutPreference: layoutPreference,
         };
       },
-      getSchedule: function () { return { autoEnabled: autoEnabled, updateTime: updateTime, lastAutoDate: lastAutoDate }; },
-      updateNow: function () { updateWallpaper("manual"); },
-      applyCurrent: function () { applyCurrentWallpaper(); },
+      getSchedule: function () { return { enabled: true, updateTime: "09:00", timezone: "Asia/Shanghai", owner: "Codex Automation" }; },
+      getActiveRunId: function () { return activeRunId; },
+      updateNow: function () { return generateFreshWallpaper(); },
       renderCanvas: function () { return renderWallpaperCanvas(selectedStyle); },
     };
-  }, [report, selectedStyle, layoutKey, stylePreference, layoutPreference, autoEnabled, updateTime, lastAutoDate, updateWallpaper, applyCurrentWallpaper]);
+  }, [report, selectedStyle, layoutKey, stylePreference, layoutPreference, activeRunId, generateFreshWallpaper]);
 
   useEffect(function () {
     if (!toast) return undefined;
@@ -513,7 +502,7 @@ export function App() {
       setToast("参考照片请控制在 12 MB 以内");
       return;
     }
-    setPortrait({ name: file.name, size: file.size, url: URL.createObjectURL(file) });
+    setPortrait({ name: file.name, size: file.size, url: URL.createObjectURL(file), file });
     setToast("参考照片已在本机准备，不会上传到网站");
     event.target.value = "";
   }
@@ -587,8 +576,8 @@ export function App() {
         <aside className="setup-panel" aria-label="壁纸生成步骤">
           <Step number="1" title="昨日复盘" active>
             <div className="sync-card">
-              <div className="sync-card-heading"><span className="sync-pulse" /><strong>公开示例复盘</strong><b>未读取对话</b></div>
-              <p>安装 Plugin 后自动读取你授权的昨日任务</p>
+              <div className="sync-card-heading"><span className="sync-pulse" /><strong>{hasGeneratedWallpaper ? "昨日真实复盘" : "公开示例复盘"}</strong><b>{hasGeneratedWallpaper ? "已完成" : "未读取对话"}</b></div>
+              <p>{hasGeneratedWallpaper ? "这张图来自刚完成的本机生成流程" : "安装 Plugin 后自动读取你授权的昨日任务"}</p>
               <blockquote>{report.summary}</blockquote>
             </div>
             <label className="single-field"><span>我的星座</span><select value={zodiac} onChange={function (event) {
@@ -604,17 +593,12 @@ export function App() {
 
           <Step number="2" title="自动更新" active>
             <div className="schedule-card">
-              <label className="auto-row">
-                <span><strong>{nativeAvailable ? "每天自动更换桌面" : "每日自动更新"}</strong><small>{nativeAvailable ? "默认根据昨天的复盘生成" : "安装 Plugin 后由 Codex 在 09:00 可靠触发"}</small></span>
-                <input aria-label="每天自动更换桌面" type="checkbox" checked={autoEnabled} onChange={function (event) {
-                  setAutoEnabled(event.target.checked);
-                  setToast(event.target.checked
-                    ? nativeAvailable ? "本地自动更新已开启" : "已保存 09:00 偏好；安装 Plugin 后生效"
-                    : "自动更新已暂停");
-                }} />
-              </label>
-              <label className="time-field"><span>更新时间</span><input aria-label="自动更新时间" type="time" value={updateTime} disabled={!autoEnabled} onChange={function (event) { setUpdateTime(event.target.value); }} /></label>
-              <div className="next-run"><span>下一次</span><strong>{nextRunLabel}</strong></div>
+              <div className="auto-row">
+                <span><strong>每天自动生成并更换</strong><small>由 Codex 定时任务执行，网页关闭也有效</small></span>
+                <strong aria-label="自动更新已启用">已启用</strong>
+              </div>
+              <label className="time-field"><span>执行时间</span><input aria-label="每日执行时间" type="time" value="09:00" readOnly /></label>
+              <div className="next-run"><span>时区</span><strong>每天 09:00 · 上海</strong></div>
             </div>
           </Step>
 
@@ -637,7 +621,7 @@ export function App() {
           </Step>
 
           <Step number="4" title="手动更新" active>
-            <button className="generate-button" type="button" onClick={function () { updateWallpaper("manual"); }} disabled={updating}>{updating ? "正在更新…" : nativeAvailable ? "立即更换桌面壁纸" : "立即更新网页预览"}<small>{nativeAvailable ? "使用当前预览的完整图片" : "安装本地助手后才能修改系统桌面"}</small></button>
+            <button className="generate-button" type="button" onClick={generateFreshWallpaper} disabled={updating}>{updating ? "正在生成新壁纸…" : nativeAvailable ? "生成并更换新壁纸" : "安装 Plugin 后生成新壁纸"}<small>{nativeAvailable ? "昨日对话 → 复盘 → 新图 → 检查 → 更换" : "公开网页不会读取你的 Codex 对话"}</small></button>
             <label className="wallpaper-import">导入 Codex 生成的完整壁纸<input type="file" accept="image/*" onChange={handleWallpaperImport} /></label>
             <div className={"desktop-status " + desktopStatus.state} role="status" data-testid="desktop-status">
               <i />
@@ -652,10 +636,10 @@ export function App() {
         <section className="workspace" aria-label="壁纸创作区">
           <div className="preview-card">
             <div className="preview-toolbar">
-              <div><strong>预览</strong><span>16:10 · 2880 × 1800 · 匿名示例数据</span></div>
+              <div><strong>预览</strong><span>16:10 · 2880 × 1800 · {hasGeneratedWallpaper ? "昨日真实复盘成品" : "匿名示例数据"}</span></div>
               <div className="preview-actions">
                 <button type="button" onClick={openFullscreen}>全屏预览</button>
-                <button type="button" onClick={applyCurrentWallpaper} disabled={updating}>使用当前图片更换桌面</button>
+                <button type="button" onClick={generateFreshWallpaper} disabled={updating}>{updating ? "正在生成" : "重新生成并更换"}</button>
                 <button className="export-button" type="button" onClick={exportWallpaper} disabled={exporting}>{exporting ? "正在导出" : "导出原图壁纸"}</button>
               </div>
             </div>
@@ -695,10 +679,10 @@ export function App() {
           </section>
 
           <div className="evidence-line">
-            <span>公开示例 · 未读取你的对话</span>
+            <span>{hasGeneratedWallpaper ? "昨日对话 · 已完成复盘" : "公开示例 · 未读取你的对话"}</span>
             <span>心理线索 {report.confidence}%</span>
             <span>AI 能力 {report.ability.level}{report.ability.score === null ? "" : " · " + report.ability.score}</span>
-            <span>自动更新 {autoEnabled ? updateTime : "已暂停"}</span>
+            <span>自动更新 每天 09:00</span>
             {exportMeta ? <output data-testid="export-status" data-width={exportMeta.width} data-height={exportMeta.height} data-bytes={exportMeta.bytes}>已生成 {exportMeta.width} × {exportMeta.height} PNG · {(exportMeta.bytes / 1024 / 1024).toFixed(1)} MB</output> : null}
           </div>
         </section>
@@ -710,7 +694,7 @@ export function App() {
             <button className="dialog-close" type="button" aria-label="关闭使用指南" onClick={function () { setGuideOpen(false); }}>关闭</button>
             <span>无需复制粘贴对话</span>
             <h2 id="guide-title">让昨天的对话，自动成为今天的桌面。</h2>
-            <ol><li>下载并安装 Daily AI Wallpaper Plugin。</li><li>在 Codex 中授权读取昨天的任务，可选附上人物照片。</li><li>Plugin 会先评估 AI 使用能力，再生成一张完整壁纸。</li><li>把成品导入本地生成器，预览、导出或更换 Mac 桌面。</li></ol>
+            <ol><li>下载并安装 Daily AI Wallpaper Plugin。</li><li>在本机打开生成器；可选附上人物照片。</li><li>点“生成并更换新壁纸”，Codex 会读取授权的昨日任务并生成全新成品。</li><li>系统只会在尺寸、文案、组件检查通过后更换桌面；每天 09:00 也会自动走同一流程。</li></ol>
             <p>公开网页不会读取你的 Codex 对话，也不会上传参考照片。首次更换桌面时，macOS 可能请求控制“系统事件”。预览与导出始终使用一张完整图片，不叠加第二层内容。</p>
           </section>
         </div>

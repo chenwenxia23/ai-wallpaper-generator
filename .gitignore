@@ -5,6 +5,7 @@ dist/
 .env
 .env.*
 !.env.example
+.ai-state/
 audit/
 deliverables/
 design-qa.md

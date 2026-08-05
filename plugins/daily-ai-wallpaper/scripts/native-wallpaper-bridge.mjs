@@ -43,19 +43,37 @@ function sha256(buffer) {
 }
 
 async function fetchRuntimePage(cacheKey) {
-  const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/index.html?wallpaper=" + cacheKey, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(2500),
-  });
-  return { response, html: await response.text() };
+  let lastError;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/index.html?wallpaper=" + cacheKey + "&attempt=" + attempt, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2500),
+      });
+      return { response, html: await response.text() };
+    } catch (error) {
+      lastError = error;
+      await wait(450);
+    }
+  }
+  throw lastError;
 }
 
 async function fetchRuntimeImage(cacheKey) {
-  const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/../manual-wallpaper.png?wallpaper=" + cacheKey, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(4000),
-  });
-  return { response, buffer: Buffer.from(await response.arrayBuffer()) };
+  let lastError;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:39761/daily-discovery-web/../manual-wallpaper.png?wallpaper=" + cacheKey + "&attempt=" + attempt, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4000),
+      });
+      return { response, buffer: Buffer.from(await response.arrayBuffer()) };
+    } catch (error) {
+      lastError = error;
+      await wait(450);
+    }
+  }
+  throw lastError;
 }
 
 async function ensureRuntimeServer() {
