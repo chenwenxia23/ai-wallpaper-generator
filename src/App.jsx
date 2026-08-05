@@ -28,7 +28,7 @@ const DEMO_REVIEW = [
 const WALLPAPER_STYLES = [
   { id: "ink-future", label: "水墨未来", note: "松开脑内循环", image: inkFutureImage, thumb: inkFutureThumb, theme: "parchment" },
   { id: "hand-painted", label: "手绘动画", note: "温柔但不幼稚", image: handPaintedImage, thumb: handPaintedThumb, theme: "parchment" },
-  { id: "pixel-rpg", label: "像素 RPG", note: "把今天变成一关", image: pixelRpgImage, thumb: pixelRpgThumb, theme: "graphite" },
+  { id: "pixel-rpg", label: "像素 RPG", note: "驶向晴朗，重新出发", image: pixelRpgImage, thumb: pixelRpgThumb, theme: "parchment" },
   { id: "art-nouveau", label: "新艺术星象", note: "秩序与美感并存", image: artNouveauImage, thumb: artNouveauThumb, theme: "parchment" },
   { id: "retro-handheld", label: "复古掌机", note: "把状态装进设备", image: retroHandheldImage, thumb: retroHandheldThumb, theme: "moss" },
   { id: "miniature", label: "微缩世界", note: "让复杂变得可触摸", image: miniatureImage, thumb: miniatureThumb, theme: "parchment" },

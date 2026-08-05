@@ -4,7 +4,7 @@ Choose a style only after the mental-state metaphor and layout logic are clear. 
 
 1. `水墨未来` — Black ink congestion opening into a warm, precise path. Best for overthinking, verification, and release.
 2. `手绘动画` — Pastoral, hand-painted animation warmth. Best for recovery, hope, and gentle momentum. Describe it generically; do not imitate a living artist by name.
-3. `像素 RPG` — Premium 32-bit role-playing-game world. Best for turning a difficult day into one playable quest.
+3. `像素 RPG` — Premium 32-bit role-playing-game world with a bright alpine meadow after rain, a turquoise stream, snow peaks, and a protagonist cycling downhill. Use a cerulean, turquoise, spring-green, white, and lemon palette with open sky and an expansive panorama. Best for relief, renewed energy, and starting again with forward motion. Keep the artwork text-free and reserve calm sky or grass clearings for later typesetting.
 4. `新艺术星象` — Art Nouveau botanical lines, brass, stained glass, and Libra balance. Best for boundaries, elegance, and decision-making.
 5. `复古掌机` — A tactile handheld-console interface and hardware frame. Best for playful self-tracking and compact status dashboards.
 6. `微缩世界` — Handcrafted diorama with miniature objects. Best for making complex systems feel understandable and controllable.
