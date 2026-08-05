@@ -144,6 +144,11 @@ async function readReport(reportPath) {
   const requiredText = ["headline", "summary", "thought", "advice", "mood"];
   if (!requiredText.every((key) => typeof report[key] === "string" && report[key].trim())) throw new Error("invalid_report");
   if (!report.style?.id || !report.style?.label || !report.layout?.id || !report.layout?.label) throw new Error("invalid_report");
+  const normalizedStyleId = report.style.id === "retro-sci-fi" ? "retro-scifi" : report.style.id;
+  const normalizedLayoutId = report.layout.id === "yesterday-to-today" ? "transition" : report.layout.id === "mental-weather" ? "mental" : report.layout.id;
+  if (!STYLE_LABELS[normalizedStyleId] || !LAYOUT_LABELS[normalizedLayoutId]) throw new Error("invalid_report");
+  report.style.id = normalizedStyleId;
+  report.layout.id = normalizedLayoutId;
   return report;
 }
 
